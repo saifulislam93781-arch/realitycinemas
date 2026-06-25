@@ -1328,7 +1328,7 @@ footer {
 
 <script type="module">
 import { initializeApp }      from "https://www.gstatic.com/firebasejs/11.0.0/firebase-app.js";
-import { getFirestore, collection, getDocs }
+import { getFirestore, collection, getDocs, query, where }
                                from "https://www.gstatic.com/firebasejs/11.0.0/firebase-firestore.js";
 
 /* ── Firebase Config (unchanged from original) ───────────────── */
@@ -1352,7 +1352,7 @@ let currentCatPage = "";
 let heroSlides     = [];
 let heroIndex      = 0;
 let heroTimer      = null;
-let heroMovies     = [];
+let heroBanners    = [];
 let searchDebounce = null;
 let brightness     = 100;
 let currentWatchId = null;
@@ -1571,7 +1571,6 @@ function showFirestoreError() {
 
 function onMoviesLoaded() {
   buildCategoryNav();
-  buildHero();
   routeFromURL();
 }
 
@@ -1592,47 +1591,72 @@ function buildCategoryNav() {
   }).join("");
 }
 
-/* ── Hero Banner ──────────────────────────────────────────────── */
-function buildHero() {
-  heroMovies = allMovies.filter(m => m.banner || m.bannerImage || m.poster).slice(0, 6);
-  if (!heroMovies.length) return;
+/* ── Hero Banner (loads from Firestore 'banners' collection) ──── */
+async function fetchBanners() {
+  try {
+    const q = query(collection(db, "banners"), where("active", "==", true));
+    const snap = await getDocs(q);
+    heroBanners = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  } catch(e) {
+    console.warn("Banners fetch failed, using fallback:", e);
+    heroBanners = [];
+  }
+  buildHero();
+}
 
+function buildHero() {
   const heroEl = document.getElementById("hero-section");
-  const slidesHTML = heroMovies.map((m, i) => {
-    const bg = m.banner || m.bannerImage || m.poster || "";
-    const title = m.bannerTitle || m.title || "Untitled";
-    const sub   = m.bannerSubtitle || m.description || "";
-    const isCS = isComingSoon(m);
+
+  // Fallback banner when no active banners exist
+  const banners = heroBanners.length ? heroBanners : [{
+    id: "_fallback",
+    title: "Welcome to Reality Cinemas",
+    subtitle: "Stream premium movies online. Action, Drama, Horror, Sci-Fi and more.",
+    image: "",
+    btnText: "Browse Movies",
+    btnLink: ""
+  }];
+
+  const slidesHTML = banners.map((b, i) => {
+    const bg         = b.image     || b.imageUrl  || "";
+    const title      = b.title     || "Reality Cinemas";
+    const sub        = b.subtitle  || "";
+    const btnText    = b.btnText   || b.buttonText || "Browse Movies";
+    const btnLink    = b.btnLink   || b.buttonLink || "";
+    const btnClick   = btnLink
+      ? `openLink('${esc(btnLink)}')`
+      : `document.getElementById('hero-section').scrollIntoView({behavior:'smooth'})`;
     return `
     <div class="hero-slide${i===0?" active":""}" data-index="${i}">
-      <div class="hero-bg" style="background-image:url('${esc(bg)}')"></div>
+      ${bg ? `<div class="hero-bg" style="background-image:url('${esc(bg)}')"></div>` : `<div class="hero-bg" style="background:var(--bg2)"></div>`}
       <div class="hero-gradient"></div>
       <div class="hero-content">
         <div class="hero-tag"><i class="fa-solid fa-fire"></i> Reality Cinemas</div>
         <div class="hero-title">${esc(title)}</div>
-        <div class="hero-subtitle">${esc(sub)}</div>
+        ${sub ? `<div class="hero-subtitle">${esc(sub)}</div>` : ""}
         <div class="hero-buttons">
-          ${isCS
-            ? `<button class="hero-btn hero-btn-primary" onclick="openComingSoon('${esc(m.id)}')"><i class="fa-regular fa-clock"></i> Coming Soon</button>`
-            : `<button class="hero-btn hero-btn-primary" onclick="navigate('movie',{id:'${esc(m.id)}'})"><i class="fa-solid fa-circle-info"></i> Details</button>`
-          }
-          <button class="hero-btn hero-btn-secondary" onclick="navigate('movie',{id:'${esc(m.id)}'})"><i class="fa-solid fa-circle-info"></i> More Info</button>
+          <button class="hero-btn hero-btn-primary" onclick="${btnClick}">
+            <i class="fa-solid fa-circle-play"></i> ${esc(btnText)}
+          </button>
         </div>
       </div>
     </div>`;
   }).join("");
 
   const heroNav = heroEl.querySelector(".hero-nav");
+  // Remove any previously injected slides before re-building
+  heroEl.querySelectorAll(".hero-slide").forEach(s => s.remove());
   heroNav.insertAdjacentHTML("beforebegin", slidesHTML);
 
   const dotsEl = document.getElementById("hero-dots");
-  dotsEl.innerHTML = heroMovies.map((_,i) => `<div class="hero-dot${i===0?" active":""}" onclick="goHeroSlide(${i})"></div>`).join("");
+  dotsEl.innerHTML = banners.map((_,i) => `<div class="hero-dot${i===0?" active":""}" onclick="goHeroSlide(${i})"></div>`).join("");
 
   startHeroTimer();
 }
 
 function goHeroSlide(idx) {
-  heroMovies.length && (idx = ((idx % heroMovies.length) + heroMovies.length) % heroMovies.length);
+  const count = document.querySelectorAll(".hero-slide").length;
+  if (count) idx = ((idx % count) + count) % count;
   document.querySelectorAll(".hero-slide").forEach((s,i) => s.classList.toggle("active", i === idx));
   document.querySelectorAll(".hero-dot").forEach((d,i) => d.classList.toggle("active", i === idx));
   heroIndex = idx;
@@ -2423,6 +2447,7 @@ window.openLink = function(url) {
 
 /* ── Init ─────────────────────────────────────────────────────── */
 fetchMovies();
+fetchBanners();
 </script>
 
 <script src="https://pl29107407.profitablecpmratenetwork.com/51/f9/ca/51f9ca99d13639ea16fc6011298f737d.js"></script>
